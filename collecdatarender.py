@@ -1,4 +1,6 @@
 import os
+import functools, sys
+print = functools.partial(print, flush=True, file=sys.stderr)
 import re
 import json
 import random
@@ -489,4 +491,5 @@ async def handler(event):
 # === START BOT ===
 print("\033[34m🚀 Bot başlatıldı! Telegram kanalını dinliyorum 🔥\033[0m")
 client.start()
+
 client.run_until_disconnected()
