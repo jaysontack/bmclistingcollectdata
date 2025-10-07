@@ -35,14 +35,12 @@ CMC_CHANNEL = -1001292331458
 CG_CHANNEL = -1001559069277
 MAKN_CHANNEL = os.getenv("TG_CHANNEL", "makntrendin")
 
-
 TG_SESSION = os.getenv("TG_SESSION")
 
 if not TG_SESSION:
     raise RuntimeError("🚨 TG_SESSION tanımlı değil kral! Lütfen .env içine string session ekle.")
 
 client = TelegramClient(StringSession(TG_SESSION), api_id, api_hash)
-
 
 # === 🔍 SABİTLER ===
 pattern = re.compile(
@@ -132,16 +130,9 @@ DEX_TO_CG = {
     "moonbeam": "moonbeam",
     "celo": "celo",
     "hedera": "hedera",
-    # add more mappings as needed
 }
 
 def get_token_id(contract, dex_data=None, symbol_hint=None):
-    """
-    Öncelik:
-     1) Eğer dex_data varsa onun chainId'sini mapleyip CoinGecko endpoint'ini dene.
-     2) Eğer bulunmazsa fallback olarak /coins/list içinde symbol_hint ile ara.
-    """
-    # 1) dex_data'dan gelen chainId ile dene
     platform_tried = []
     if dex_data:
         dex_chain = (dex_data.get("chainId") or "").lower()
@@ -152,12 +143,9 @@ def get_token_id(contract, dex_data=None, symbol_hint=None):
             data = safe_request(url)
             if data and data.get("id"):
                 return data.get("id")
-
-    # 2) fallback: coin list ile sembole göre arama (daha geniş fakat daha yavaş)
     coin_list = safe_request(f"{COINGECKO}/coins/list")
     if coin_list and symbol_hint:
         hint = symbol_hint.lower()
-        # İlk eşleşeni döndür (token sembolü aynı olabilecek ama genelde işe yarar)
         for coin in coin_list:
             if coin.get("symbol", "").lower() == hint:
                 return coin.get("id")
@@ -253,7 +241,6 @@ def ensure_full_schema(obj: dict) -> dict:
         else:
             out[k] = (list(v) if isinstance(v, list) else dict(v) if isinstance(v, dict) else v)
 
-    # Normalize contracts
     contracts = obj.get("contracts", []) if isinstance(obj.get("contracts", []), list) else []
     normalized_contracts = []
     for c in contracts:
@@ -263,7 +250,6 @@ def ensure_full_schema(obj: dict) -> dict:
             if isinstance(addr, str) and addr.startswith("0x"):
                 addr = addr.lower()
             normalized_contracts.append({"address": addr, "chain": chain})
-    # fallback: if obj has single contract string
     if not normalized_contracts:
         single = obj.get("contracts")
         if isinstance(single, str):
@@ -322,18 +308,15 @@ def normalize_json(contract, coin_data, dex_data):
             url = w.get("url", "")
             if not url:
                 continue
-            # "website", "official", "app" gibi label'lara öncelik ver
             if any(k in label for k in ["website", "official", "app", "home"]):
                 website_from_dex = url
                 break
             if not website_from_dex:
                 website_from_dex = url
 
-    # === 🔗 SOSYAL LİNKLERİ ÇEK ===
     twitter = ""
     telegram_links = []
 
-    # 1️⃣ CoinGecko linkleri
     if links.get("twitter_screen_name"):
         twitter = f"https://twitter.com/{links.get('twitter_screen_name')}"
     if links.get("telegram_channel_identifier"):
@@ -341,7 +324,6 @@ def normalize_json(contract, coin_data, dex_data):
         tg_url = f"https://t.me/{tg_user}" if "t.me" not in tg_user else tg_user
         telegram_links.append({"label": "Official", "url": tg_url})
 
-    # 2️⃣ DexScreener linkleri (en önemli kısım 🔥)
     socials = (dex_data.get("info", {}).get("socials", []) if dex_data else [])
     for s in socials:
         if not isinstance(s, dict):
@@ -349,7 +331,7 @@ def normalize_json(contract, coin_data, dex_data):
         s_type = s.get("type", "").lower()
         s_url = s.get("url", "")
         if s_type == "twitter" or "x.com" in s_url or "twitter.com" in s_url:
-            twitter = s_url  # 👈 artık DexScreener’daki X/Twitter linki buraya düşer
+            twitter = s_url
         elif s_type == "telegram" and "t.me" in s_url:
             telegram_links.append({"label": "Group", "url": s_url})
 
@@ -380,7 +362,7 @@ def normalize_json(contract, coin_data, dex_data):
         "logo": logo,
         "banner": banner,
         "website": website_from_dex or (safe_first(links.get("homepage", [])) if links else ""),
-        "twitter": twitter,  # ✅ ARTIK HEM CG HEM DEX'TEN ALINIYOR
+        "twitter": twitter,
         "telegramLinks": telegram_links,
         "exchanges": exchanges,
         "coinmarketcap": cmc_link,
@@ -392,10 +374,7 @@ def normalize_json(contract, coin_data, dex_data):
     return obj
 
 def save_to_databases(obj_partial, dex_data):
-    # ensure full schema
     full_obj = ensure_full_schema(obj_partial)
-
-    # extract primary contract for duplicate check
     contracts = full_obj.get("contracts", [])
     if not contracts or not isinstance(contracts, list) or not contracts[0].get("address"):
         print(f"\033[31m[x] Kaydetme başarısız: primary contract yok veya hatalı.\033[0m")
@@ -405,13 +384,11 @@ def save_to_databases(obj_partial, dex_data):
     contract_addr = primary.get("address")
     chain = primary.get("chain", "")
 
-    # duplicate check: same chain + contract
     exists = mongo_col.find_one({"contracts.address": contract_addr, "contracts.chain": chain})
     if exists:
         print(f"\033[33m⚠️ SKIP: {full_obj.get('symbol') or full_obj.get('name')} zaten kayıtlı ({chain}:{contract_addr}) — atlandı.\033[0m")
         return
 
-    # insert into Mongo
     try:
         res = mongo_col.insert_one(full_obj)
         print(f"\033[32m[✓] Mongo'ya kaydedildi: {full_obj.get('symbol') or full_obj.get('name')} ({chain}:{contract_addr}) — _id: {res.inserted_id}\033[0m")
@@ -419,11 +396,9 @@ def save_to_databases(obj_partial, dex_data):
         print(f"\033[31m[x] Mongo kayıt hatası: {e}\033[0m")
         return
 
-    # Redis write (lightweight summary)
     try:
         if not dex_data:
             dex_data = get_dexscreener_info(contract_addr)
-
         base = (dex_data.get("baseToken") if dex_data else {}) or {}
         chain_ = dex_data.get("chainId", "") or chain
         contract_addr_ = base.get("address") or contract_addr
@@ -496,17 +471,54 @@ async def handler(event):
         print(f"\033[36mℹ️ Kanal (makn): likidite kontrolü atlandı — direk Mongo kontrolü yapılacak.\033[0m")
 
     symbol_hint = (dex_data.get("baseToken") or {}).get("symbol")
-    # artık dex_data öncelikli: get_token_id dex_data ile deneyecek
     coin_id = get_token_id(contract, dex_data=dex_data, symbol_hint=symbol_hint)
     coin_data = get_token_info(coin_id) if coin_id else None
 
     partial_obj = normalize_json(contract, coin_data, dex_data)
-
-    # Burada ensure_full_schema() çağrısı ile tüm alanlar eklenip kaydedilecek
     save_to_databases(partial_obj, dex_data)
 
-# === START BOT ===
-print("\033[34m🚀 Bot başlatıldı! Telegram kanalını dinliyorum 🔥\033[0m")
-client.start()
+# === KEEP-ALIVE (Flask Sunucu) ===
+from flask import Flask
+from threading import Thread
+import asyncio, time, requests
 
-client.run_until_disconnected()
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "✅ Bot aktif ve dinliyor."
+
+def run_flask():
+    app.run(host="0.0.0.0", port=8080)
+
+def keep_alive():
+    t = Thread(target=run_flask)
+    t.start()
+
+def self_ping():
+    url = os.getenv("KEEPALIVE_URL", "https://<your-render-app>.onrender.com/")
+    while True:
+        try:
+            requests.get(url)
+            print("💓 Keepalive ping gönderildi")
+        except Exception as e:
+            print("⚠️ Keepalive ping başarısız:", e)
+        time.sleep(280)
+
+# === BOTU BAŞLAT ===
+print("\033[34m🚀 Bot başlatıldı! Telegram kanalını dinliyorum 🔥\033[0m")
+
+async def main():
+    while True:
+        try:
+            await client.start()
+            print("✅ Telegram bağlantısı kuruldu.")
+            await client.run_until_disconnected()
+        except Exception as e:
+            print(f"⚠️ Bağlantı koptu, yeniden bağlanıyor: {e}")
+            await asyncio.sleep(10)
+
+if __name__ == "__main__":
+    keep_alive()
+    Thread(target=self_ping).start()
+    asyncio.run(main())
