@@ -311,6 +311,23 @@ def normalize_json(contract, coin_data, dex_data):
         banner = info.get("header", "") or banner
         if not description:
             description = info.get("description", "") or description
+                # --- 🕸️ DexScreener'dan Website linkini de çek ---
+    website_from_dex = ""
+    info_websites = info.get("websites", [])
+    if isinstance(info_websites, list):
+        for w in info_websites:
+            if not isinstance(w, dict):
+                continue
+            label = w.get("label", "").lower()
+            url = w.get("url", "")
+            if not url:
+                continue
+            # "website", "official", "app" gibi label'lara öncelik ver
+            if any(k in label for k in ["website", "official", "app", "home"]):
+                website_from_dex = url
+                break
+            if not website_from_dex:
+                website_from_dex = url
 
     # === 🔗 SOSYAL LİNKLERİ ÇEK ===
     twitter = ""
@@ -362,7 +379,7 @@ def normalize_json(contract, coin_data, dex_data):
         "description": description,
         "logo": logo,
         "banner": banner,
-        "website": safe_first(links.get("homepage", [])) if links else "",
+        "website": website_from_dex or (safe_first(links.get("homepage", [])) if links else ""),
         "twitter": twitter,  # ✅ ARTIK HEM CG HEM DEX'TEN ALINIYOR
         "telegramLinks": telegram_links,
         "exchanges": exchanges,
